@@ -30,6 +30,10 @@ import { getStoreSummary } from '../../utils/audit-error-paths-helpers';
 
 const DAY_16 = '2026-06-16';
 const TRACKED_MS = 60_000;
+// Each page has its own clock. The desktop wakes hours after the phone's
+// edits, so its bare Create is the newer op, as in the report.
+const PHONE_TIME = '00:05:00';
+const DESKTOP_TIME = '08:00:00';
 
 const currentInstance = (
   page: SimulatedE2EClient['page'],
@@ -51,13 +55,14 @@ const openTaskDetail = async (
 };
 
 /**
- * Marks day 15's instance done, then moves the clock past midnight so the
- * day-change effect creates day 16's instance. setSystemTime keeps the clock
- * moving, which the effect chain's debounceTime needs (#6230).
+ * Marks day 15's instance done, then moves the clock to `time` on day 16 so
+ * the day-change effect creates day 16's instance. setSystemTime keeps the
+ * clock moving, which the effect chain's debounceTime needs (#6230).
  */
-const advancePastMidnight = async (
+const advanceToDay16 = async (
   client: SimulatedE2EClient,
   name: string,
+  time: string,
 ): Promise<void> => {
   const prev = currentInstance(client.page, name);
   const prevId = await prev.getAttribute('data-task-id');
@@ -69,7 +74,7 @@ const advancePastMidnight = async (
     })
     .toBeGreaterThan(0);
 
-  await client.page.clock.setSystemTime(new Date(`${DAY_16}T00:05:00`));
+  await client.page.clock.setSystemTime(new Date(`${DAY_16}T${time}`));
   await client.page.evaluate(() => window.dispatchEvent(new Event('focus')));
   await expect(currentInstance(client.page, name)).toBeVisible({ timeout: 60000 });
 };
@@ -173,19 +178,19 @@ test.describe('@supersync Recurring instance created on two devices (#11645)', (
         if (order === 'phone uploads first') {
           // The desktop is asleep while the phone works and syncs.
           await desktop.context.setOffline(true);
-          await advancePastMidnight(phone, name);
+          await advanceToDay16(phone, name, PHONE_TIME);
           await editOnPhone(phone, name, editedName);
           await phone.sync.syncAndWait();
           // It wakes up, creates its own instance (newer), then syncs.
-          await advancePastMidnight(desktop, name);
+          await advanceToDay16(desktop, name, DESKTOP_TIME);
           await desktop.context.setOffline(false);
           await desktop.sync.syncAndWait();
         } else {
           // The phone works offline; the desktop creates later but uploads first.
           await phone.context.setOffline(true);
-          await advancePastMidnight(phone, name);
+          await advanceToDay16(phone, name, PHONE_TIME);
           await editOnPhone(phone, name, editedName);
-          await advancePastMidnight(desktop, name);
+          await advanceToDay16(desktop, name, DESKTOP_TIME);
           await desktop.sync.syncAndWait();
           await phone.context.setOffline(false);
           await phone.sync.syncAndWait();
