@@ -19,8 +19,6 @@ export type LwwConflictResolutionReason =
   | 'local-archive-sibling'
   | 'remote-delete-wins'
   | 'local-delete-wins'
-  | 'remote-twin-create'
-  | 'local-twin-create'
   | 'local-timestamp'
   | 'remote-timestamp-or-tie';
 
@@ -423,52 +421,6 @@ export const suggestConflictResolution = <TOperation extends Operation<string>>(
 };
 
 /**
- * An op's action payload without embedded snapshots of its own entity. Two
- * devices that run the same creation follow-up (e.g. a repeat's
- * scheduleTaskWithTime) embed their own copy of the new entity, which differs
- * in device-local fields such as `created`; what the op changes does not.
- */
-const payloadWithoutOwnSnapshot = (op: Operation<string>): Record<string, unknown> =>
-  Object.fromEntries(
-    Object.entries(extractActionPayload(op.payload)).filter(
-      ([, value]) =>
-        !(
-          typeof value === 'object' &&
-          value !== null &&
-          (value as Record<string, unknown>)['id'] === op.entityId &&
-          // An `{id, changes}` Update (updateTask) is the edit itself, not a copy.
-          !('changes' in value)
-        ),
-    ),
-  );
-
-/**
- * Whether every op of `side` repeats one of `other`: a Create matches the
- * other side's Create (same deterministic id), any other op an op with the
- * same action and the same payload (see `payloadWithoutOwnSnapshot`). Such a
- * side carries no intent the other side lacks. A differing payload counts as
- * a real edit, which keeps timestamp LWW for it.
- */
-const isTwinCreateSide = (
-  side: readonly Operation<string>[],
-  other: readonly Operation<string>[],
-): boolean =>
-  hasCreate(side) &&
-  side.every((op) =>
-    op.opType === OpType.Create
-      ? hasCreate(other)
-      : other.some(
-          (o) =>
-            o.opType === op.opType &&
-            o.actionType === op.actionType &&
-            deepEqual(payloadWithoutOwnSnapshot(o), payloadWithoutOwnSnapshot(op)),
-        ),
-  );
-
-const hasCreate = (ops: readonly Operation<string>[]): boolean =>
-  ops.some((op) => op.opType === OpType.Create);
-
-/**
  * The clientId of the op carrying a side's winning (max) timestamp. Used only as
  * a deterministic tiebreak when both sides share the same max timestamp: the two
  * devices see "local" and "remote" swapped, so comparing timestamps alone makes
@@ -640,28 +592,6 @@ export const planLwwConflictResolutions = <
         winner: 'local',
         reason: 'local-delete-wins',
         localWinOperationKind: 'delete-win',
-      };
-    }
-
-    // Twin creates (#11645): both devices created the same entity id
-    // independently (deterministic ids, e.g. a repeat instance per day). A side
-    // whose ops all repeat the other side's (its Create, plus identical
-    // creation follow-ups such as a repeat's scheduleTaskWithTime) adds
-    // nothing, so it must not win on its later timestamp and overwrite the
-    // other side's edits (tracked time, notes) with a blank snapshot.
-    const localEntityOps = [...(localOpsByEntity.get(entityKey)?.values() ?? [])];
-    const remoteEntityOps = [...(remoteOpsByEntity.get(entityKey)?.values() ?? [])];
-    const localIsTwin = isTwinCreateSide(localEntityOps, remoteEntityOps);
-    const remoteIsTwin = isTwinCreateSide(remoteEntityOps, localEntityOps);
-    if (localIsTwin && !remoteIsTwin) {
-      return { conflict, winner: 'remote', reason: 'remote-twin-create' };
-    }
-    if (remoteIsTwin && !localIsTwin) {
-      return {
-        conflict,
-        winner: 'local',
-        reason: 'local-twin-create',
-        localWinOperationKind: 'update',
       };
     }
 

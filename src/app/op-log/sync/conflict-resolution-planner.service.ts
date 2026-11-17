@@ -172,15 +172,6 @@ export class ConflictResolutionPlannerService {
             `(${plan.winner} delete) for ` +
             `${plan.conflict.entityType}:${plan.conflict.entityId}`,
         );
-      } else if (
-        plan.reason === 'remote-twin-create' ||
-        plan.reason === 'local-twin-create'
-      ) {
-        OpLog.normal(
-          `ConflictResolutionService: both sides created ` +
-            `${plan.conflict.entityType}:${plan.conflict.entityId}; the side with ` +
-            `follow-up edits wins (${plan.winner}) (#11645)`,
-        );
       } else if (plan.winner === 'local') {
         OpLog.normal(
           `ConflictResolutionService: LWW resolved ${plan.conflict.entityType}:${plan.conflict.entityId} as LOCAL ` +
