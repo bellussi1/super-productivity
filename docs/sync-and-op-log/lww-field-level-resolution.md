@@ -39,7 +39,10 @@ unless noted.
    (#10385).
 2. `_resolveConflictsWithLWW` plans the winners with sync-core's
    `planLwwConflictResolutions`, which uses the max timestamp and then the
-   clientId of that op. It then tries `_tryCreateDisjointMergeOp`, which
+   clientId of that op. Before timestamps (after archive and delete-wins), a
+   twin create yields: when both sides created the same id and one side's ops
+   only repeat the other's (its Create, plus identical follow-ups such as a
+   repeat's schedule), the side with real edits wins (#11645). It then tries `_tryCreateDisjointMergeOp`, which
    refuses:
    - more than one conflict per entity in the batch;
    - any delete, archive or multi-entity op;
